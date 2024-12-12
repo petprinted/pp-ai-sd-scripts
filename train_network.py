@@ -736,7 +736,8 @@ class NetworkTrainer:
             if key in metadata:
                 minimum_metadata[key] = metadata[key]
 
-        progress_bar = tqdm(range(args.max_train_steps), smoothing=0, disable=not accelerator.is_local_main_process, desc="steps")
+        # Replace progress bar with None - keep the range for iteration but disable output
+        progress_bar = range(args.max_train_steps)
         global_step = 0
 
         noise_scheduler = DDPMScheduler(
@@ -794,7 +795,8 @@ class NetworkTrainer:
 
         # training loop
         for epoch in range(num_train_epochs):
-            accelerator.print(f"\nepoch {epoch+1}/{num_train_epochs}")
+            # Force this specific message to INFO level but use force_console=True
+            logging.getLogger(__name__).log(logging.INFO, f"\nepoch {epoch+1}/{num_train_epochs}", extra={"force_console": True})
             current_epoch.value = epoch + 1
 
             metadata["ss_epoch"] = str(epoch + 1)
@@ -920,7 +922,6 @@ class NetworkTrainer:
 
                 # Checks if the accelerator has performed an optimization step behind the scenes
                 if accelerator.sync_gradients:
-                    progress_bar.update(1)
                     global_step += 1
 
                     self.sample_images(accelerator, args, None, global_step, accelerator.device, vae, tokenizer, text_encoder, unet)
@@ -944,7 +945,6 @@ class NetworkTrainer:
                 loss_recorder.add(epoch=epoch, step=step, loss=current_loss)
                 avr_loss: float = loss_recorder.moving_average
                 logs = {"avr_loss": avr_loss}  # , "lr": lr_scheduler.get_last_lr()[0]}
-                progress_bar.set_postfix(**logs)
 
                 if args.scale_weight_norms:
                     progress_bar.set_postfix(**{**max_mean_logs, **logs})
@@ -960,7 +960,8 @@ class NetworkTrainer:
                 logs = {"loss/epoch": loss_recorder.moving_average}
                 accelerator.log(logs, step=epoch + 1)
 
-            accelerator.wait_for_everyone()
+            # At the end of each epoch, log the average loss
+            logging.getLogger(__name__).log(logging.INFO, f"Epoch {epoch+1} completed. Average loss: {loss_recorder.moving_average:.4f}", extra={"force_console": True})
 
             # 指定エポックごとにモデルを保存
             if args.save_every_n_epochs is not None:
@@ -978,8 +979,6 @@ class NetworkTrainer:
                         train_util.save_and_remove_state_on_epoch_end(args, accelerator, epoch + 1)
 
             self.sample_images(accelerator, args, epoch + 1, global_step, accelerator.device, vae, tokenizer, text_encoder, unet)
-
-            # end of epoch
 
         # metadata["ss_epoch"] = str(num_train_epochs)
         metadata["ss_training_finished_at"] = str(time.time())

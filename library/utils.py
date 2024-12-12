@@ -33,50 +33,38 @@ def add_logging_arguments(parser):
 def setup_logging(args=None, log_level=None, reset=False):
     if logging.root.handlers:
         if reset:
-            # remove all handlers
             for handler in logging.root.handlers[:]:
                 logging.root.removeHandler(handler)
         else:
             return
 
-    # log_level can be set by the caller or by the args, the caller has priority. If not set, use INFO
+    # Set default to WARNING instead of INFO
     if log_level is None and args is not None:
         log_level = args.console_log_level
     if log_level is None:
-        log_level = "INFO"
+        log_level = "WARNING"  # Changed from INFO to WARNING
     log_level = getattr(logging, log_level)
 
-    msg_init = None
     if args is not None and args.console_log_file:
         handler = logging.FileHandler(args.console_log_file, mode="w")
     else:
-        handler = None
-        if not args or not args.console_log_simple:
-            try:
-                from rich.logging import RichHandler
-                from rich.console import Console
-                from rich.logging import RichHandler
+        # Force simple logging by default
+        handler = logging.StreamHandler(sys.stdout)
+        handler.propagate = False
 
-                handler = RichHandler(console=Console(stderr=True))
-            except ImportError:
-                # print("rich is not installed, using basic logging")
-                msg_init = "rich is not installed, using basic logging"
-
-        if handler is None:
-            handler = logging.StreamHandler(sys.stdout)  # same as print
-            handler.propagate = False
-
-    formatter = logging.Formatter(
-        fmt="%(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    # Simplified formatter - just message and no timestamp
+    formatter = logging.Formatter('%(message)s')
     handler.setFormatter(formatter)
     logging.root.setLevel(log_level)
-    logging.root.addHandler(handler)
 
-    if msg_init is not None:
-        logger = logging.getLogger(__name__)
-        logger.info(msg_init)
+    class ForceConsoleFilter(logging.Filter):
+        def filter(self, record):
+            if hasattr(record, 'force_console'):
+                return True
+            return record.levelno >= log_level
+
+    handler.addFilter(ForceConsoleFilter())
+    logging.root.addHandler(handler)
 
 
 
